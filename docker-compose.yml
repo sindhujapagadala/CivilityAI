@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  # CivilityAI PostgreSQL Database Service
+  civility-db:
+    image: postgres:15-alpine
+    container_name: civility_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: civility_admin
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_DB: civility_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U civility_admin -d civility_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # CivilityAI FastAPI Backend Service
+  civility-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: civility_backend
+    restart: unless-stopped
+    depends_on:
+      civility-db:
+        condition: service_healthy
+    environment:
+      - ENVIRONMENT=production
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATABASE_URL=postgresql://civility_admin:secure_password@civility-db:5432/civility_db
+      - MODEL_BACKEND=transformer
+      - DEVICE_PREFERENCE=cpu
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./saved_models:/app/saved_models
+      - ./analysis_outputs:/app/analysis_outputs
+      - ./datasets:/app/datasets
+
+  # CivilityAI Web Client Service
+  civility-web:
+    image: nginx:alpine
+    container_name: civility_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./web_client:/usr/share/nginx/html:ro
+    depends_on:
+      - civility-api
+
+volumes:
+  postgres_data:

@@ -1,0 +1,8 @@
+{
+  "general_toxicity": 0.48,
+  "severe_abuse": 0.32,
+  "obscene_language": 0.42,
+  "threatening_language": 0.28,
+  "personal_insult": 0.44,
+  "identity_attack": 0.34
+}

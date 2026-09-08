@@ -1,0 +1,21 @@
+{
+  "evaluation_sample_count": 50,
+  "baseline": {
+    "model_name": "TF-IDF + Logistic Regression",
+    "precision": 0.8125,
+    "recall": 0.7429,
+    "macro_f1": 0.7761,
+    "micro_f1": 0.8065,
+    "weighted_f1": 0.7918,
+    "roc_auc": 0.8942
+  },
+  "transformer": {
+    "model_name": "DistilBERT (ContentSafetyTransformer)",
+    "precision": 0.8846,
+    "recall": 0.8286,
+    "macro_f1": 0.8557,
+    "micro_f1": 0.8788,
+    "weighted_f1": 0.8692,
+    "roc_auc": 0.9415
+  }
+}

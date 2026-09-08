@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CivilityAI — Intelligent Content Safety & Moderation</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              dark: '#0b0f19',
+              card: '#111827',
+              border: '#1f2937',
+              primary: '#6366f1',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- React 18 and Babel CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #0b0f19; color: #f3f4f6; }
+    code, pre, .font-mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+    const API_BASE = 'http://127.0.0.1:8000';
+
+    const CATEGORY_META = [
+      { key: 'general_toxicity', label: 'General Toxicity', color: 'from-amber-500 to-rose-500' },
+      { key: 'severe_abuse', label: 'Severe Abuse', color: 'from-rose-600 to-red-600' },
+      { key: 'obscene_language', label: 'Obscene Language', color: 'from-purple-500 to-indigo-500' },
+      { key: 'threatening_language', label: 'Threatening Language', color: 'from-red-600 to-rose-700' },
+      { key: 'personal_insult', label: 'Personal Insult', color: 'from-orange-500 to-amber-500' },
+      { key: 'identity_attack', label: 'Identity Attack', color: 'from-pink-600 to-rose-600' },
+    ];
+
+    function StandaloneCivilityApp() {
+      const [activeTab, setActiveTab] = useState('analyzer');
+      const [messageText, setMessageText] = useState('');
+      const [isAnalyzing, setIsAnalyzing] = useState(false);
+      const [analysisResult, setAnalysisResult] = useState(null);
+      const [systemStatus, setSystemStatus] = useState(null);
+      const [pendingReviews, setPendingReviews] = useState([]);
+      const [analyticsData, setAnalyticsData] = useState(null);
+      const [selectedRecord, setSelectedRecord] = useState(null);
+      const [statusNotice, setStatusNotice] = useState(null);
+
+      // Fetch health check
+      useEffect(() => {
+        fetch(`${API_BASE}/system/health`)
+          .then(r => r.json())
+          .then(data => setSystemStatus(data))
+          .catch(() => setSystemStatus({ status: 'offline', engine_version: 'CivilityAI-v1.0.0 (Offline Mode)' }));
+      }, []);
+
+      const handleAnalyze = async (e) => {
+        if (e) e.preventDefault();
+        if (!messageText.trim()) return;
+
+        setIsAnalyzing(true);
+        setStatusNotice(null);
+
+        try {
+          const res = await fetch(`${API_BASE}/safety/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message_body: messageText }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const data = await res.json();
+          setAnalysisResult(data);
+        } catch (err) {
+          // Client-side heuristic simulation if API is not running yet
+          const lower = messageText.toLowerCase();
+          const isToxic = /idiot|moron|hate|kill|fuck|shit|worthless|die/i.test(lower);
+          const mockScores = {
+            general_toxicity: isToxic ? 0.92 : 0.03,
+            severe_abuse: /die|kill|suffer/i.test(lower) ? 0.88 : 0.01,
+            obscene_language: /fuck|shit|bitch/i.test(lower) ? 0.94 : 0.02,
+            threatening_language: /kill|track you|bullet|break/i.test(lower) ? 0.95 : 0.01,
+            personal_insult: /idiot|moron|loser|incompetent/i.test(lower) ? 0.91 : 0.02,
+            identity_attack: /parasite|religion|ethnic/i.test(lower) ? 0.89 : 0.01,
+          };
+          const maxCrit = Math.max(mockScores.threatening_language, mockScores.severe_abuse, mockScores.identity_attack);
+          let risk = (mockScores.threatening_language * 0.28) + (mockScores.severe_abuse * 0.25) +
+                     (mockScores.identity_attack * 0.22) + (mockScores.personal_insult * 0.12) +
+                     (mockScores.obscene_language * 0.08) + (mockScores.general_toxicity * 0.05);
+          if (maxCrit > 0.70) risk = Math.max(risk, maxCrit * 0.90);
+          risk = Math.min(Math.max(risk, 0.0), 1.0);
+          const action = risk >= 0.75 ? 'ESCALATE' : risk >= 0.30 ? 'REVIEW' : 'ALLOW';
+
+          setAnalysisResult({
+            record_id: 'client-simulated',
+            message_body: messageText,
+            category_scores: mockScores,
+            triggered_categories: Object.keys(mockScores).filter(k => mockScores[k] >= 0.40),
+            safety_risk_index: risk,
+            moderation_action: action,
+            engine_version: 'CivilityAI-v1.0.0 (Client Preview)',
+            processing_time_ms: 18.5,
+          });
+          setStatusNotice('Note: Evaluated with embedded safety rules (Start backend for full transformer inference).');
+        } finally {
+          setIsAnalyzing(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex flex-col">
+          {/* Header */}
+          <header className="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-xl shadow-lg shadow-indigo-500/20">
+                  🛡️
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="font-extrabold text-xl text-white">CivilityAI</h1>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
+                      Trust & Safety
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">Intelligent Content Safety & Moderation</p>
+                </div>
+              </div>
+
+              {/* Navigation */}
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                {['analyzer', 'review', 'analytics'].map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold capitalize transition ${
+                      activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tab === 'analyzer' ? '🛡️ Live Analyzer' : tab === 'review' ? '⚖️ Review Console' : '📊 Analytics'}
+                  </button>
+                ))}
+              </div>
+
+              {/* Engine Badge */}
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700/50 text-xs font-mono">
+                <span className={`w-2 h-2 rounded-full ${systemStatus?.status === 'healthy' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                <span className="text-slate-300 text-[11px]">{systemStatus?.engine_version || 'Connecting...'}</span>
+              </div>
+            </div>
+          </header>
+
+          {/* Main Container */}
+          <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-8 space-y-8">
+            {activeTab === 'analyzer' && (
+              <div className="space-y-6">
+                <div className="text-center space-y-2">
+                  <h2 className="text-3xl font-extrabold text-white">Intelligent Content Safety & Moderation</h2>
+                  <p className="text-slate-400 text-sm">Multi-label toxic language detection across 6 dimensions with policy governance.</p>
+                </div>
+
+                {/* Input Card */}
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+                  <div className="flex justify-between text-xs text-slate-400">
+                    <span className="font-bold uppercase tracking-wider">Message Text</span>
+                    <span className="font-mono">{messageText.length} chars</span>
+                  </div>
+                  <textarea
+                    value={messageText}
+                    onChange={e => setMessageText(e.target.value)}
+                    placeholder="Enter content to analyze..."
+                    rows={4}
+                    className="w-full bg-slate-950/90 border border-slate-800 rounded-xl p-4 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                      <span className="text-slate-500 text-[11px] uppercase font-semibold mr-1">Try:</span>
+                      <button onClick={() => setMessageText('Thank you for improving this article, the references look very solid.')} className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700">Civil Comment</button>
+                      <button onClick={() => setMessageText('You are completely incompetent and have no idea what you are talking about.')} className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700">Insult</button>
+                      <button onClick={() => setMessageText('I know where you live and I will track you down and break your skull.')} className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700">Threat</button>
+                      <button onClick={() => setMessageText('Shut the fuck up and delete your account, you piece of shit.')} className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700">Obscenity</button>
+                    </div>
+                    <button
+                      onClick={handleAnalyze}
+                      disabled={isAnalyzing || !messageText.trim()}
+                      className="px-6 py-2.5 rounded-xl font-bold text-xs bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 disabled:opacity-50 transition"
+                    >
+                      {isAnalyzing ? 'ANALYZING...' : 'ANALYZE CONTENT'}
+                    </button>
+                  </div>
+                  {statusNotice && <div className="text-[11px] text-amber-300/80 italic">{statusNotice}</div>}
+                </div>
+
+                {/* Analysis Output Results */}
+                {analysisResult && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Safety Risk Index */}
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Safety Risk Index</span>
+                        <div className="my-3 text-4xl font-extrabold text-white font-mono">
+                          {Math.round(analysisResult.safety_risk_index * 100)}%
+                        </div>
+                        <div className="w-full bg-slate-800 rounded-full h-2">
+                          <div
+                            className={`h-2 rounded-full ${analysisResult.safety_risk_index >= 0.75 ? 'bg-rose-500' : analysisResult.safety_risk_index >= 0.30 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${Math.min(analysisResult.safety_risk_index * 100, 100)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Moderation Action */}
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Moderation Action</span>
+                        <div className="my-2">
+                          <span className={`inline-block px-3.5 py-1.5 rounded-xl font-extrabold text-sm border ${
+                            analysisResult.moderation_action === 'ESCALATE' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' :
+                            analysisResult.moderation_action === 'REVIEW' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
+                            'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                          }`}>
+                            {analysisResult.moderation_action === 'ALLOW' ? '✓ ALLOW' : analysisResult.moderation_action === 'REVIEW' ? '⚠ HUMAN REVIEW' : '🚨 ESCALATE'}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-500 font-mono">Triggered: {analysisResult.triggered_categories.length} categories</span>
+                      </div>
+
+                      {/* Telemetry */}
+                      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Telemetry</span>
+                        <div className="space-y-1 my-2 text-xs">
+                          <div className="flex justify-between"><span className="text-slate-400">Latency:</span><span className="font-mono text-white">{analysisResult.processing_time_ms} ms</span></div>
+                          <div className="flex justify-between"><span className="text-slate-400">Engine:</span><span className="font-mono text-slate-300">{analysisResult.engine_version}</span></div>
+                        </div>
+                        <span className="text-[10px] text-slate-500">Multi-label independent Sigmoid</span>
+                      </div>
+                    </div>
+
+                    {/* Breakdown */}
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-4">Safety Category Breakdown</h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {CATEGORY_META.map(cat => {
+                          const score = analysisResult.category_scores[cat.key] || 0.0;
+                          const pct = Math.round(score * 100);
+                          return (
+                            <div key={cat.key} className="p-3.5 rounded-xl bg-slate-950 border border-slate-800/80 space-y-1.5">
+                              <div className="flex justify-between text-xs font-semibold">
+                                <span className="text-slate-200">{cat.label}</span>
+                                <span className={`font-mono ${pct > 50 ? 'text-rose-400' : pct > 25 ? 'text-amber-400' : 'text-slate-300'}`}>{pct}%</span>
+                              </div>
+                              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                                <div className={`h-2 rounded-full bg-gradient-to-r ${cat.color}`} style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'review' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-4">
+                <span className="text-4xl block">⚖️</span>
+                <h3 className="text-lg font-bold text-white">Review Console Online</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Flagged content requiring human adjudication is loaded from <code className="font-mono text-indigo-400">GET /review/pending</code> and resolved via <code className="font-mono text-indigo-400">POST /review/&#123;id&#125;/action</code>.
+                </p>
+              </div>
+            )}
+
+            {activeTab === 'analytics' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center space-y-4">
+                <span className="text-4xl block">📊</span>
+                <h3 className="text-lg font-bold text-white">Analytics Dashboard</h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto">
+                  Aggregates content metrics, policy violation percentages, and P95 latency via <code className="font-mono text-indigo-400">GET /analytics/summary</code>.
+                </p>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<StandaloneCivilityApp />);
+  </script>
+</body>
+</html>
